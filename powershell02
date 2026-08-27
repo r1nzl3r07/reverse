@@ -6,38 +6,42 @@ $TargetPort = 21925             # Puerto destino
 $Protocol = "TCP"              # "TCP" o "UDP"
 
 # ============================================
-# RECOPILAR DATOS DEL SERVIDOR
+# RECOPILAR DATOS DEL EQUIPO Y USUARIO
 # ============================================
 
-# Información básica del sistema
+# Información del sistema
 $computer = Get-CimInstance Win32_ComputerSystem
 $os = Get-CimInstance Win32_OperatingSystem
+$bios = Get-CimInstance Win32_BIOS
 
-# Datos del sistema
+# Datos del equipo
 $hostname = $env:COMPUTERNAME
+$domain = $env:USERDOMAIN
+$manufacturer = $computer.Manufacturer
+$model = $computer.Model
+$serial = $bios.SerialNumber
 $totalMemory = [math]::Round($computer.TotalPhysicalMemory / 1GB, 2)
 $cores = $computer.NumberOfLogicalProcessors
 $osName = $os.Caption
-$uptime = (Get-Date) - $os.LastBootUpTime
+$osVersion = $os.Version
+$osArchitecture = $os.OSArchitecture
+$installDate = $os.InstallDate
+$lastBoot = $os.LastBootUpTime
 
-# Rendimiento
-$cpuUsage = (Get-Counter "\Processor(_Total)\% Processor Time").CounterSamples.CookedValue
-$freeMemory = [math]::Round($os.FreePhysicalMemory / 1MB, 2)
-$memoryUsage = [math]::Round((($os.TotalVisibleMemorySize - $os.FreePhysicalMemory) / $os.TotalVisibleMemorySize) * 100, 2)
-
-# Discos
-$disks = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3"
-$diskList = @()
-foreach ($disk in $disks) {
-    $diskList += "$($disk.DeviceID) $([math]::Round($disk.Size/1GB,2))GB Libre:$([math]::Round($disk.FreeSpace/1GB,2))GB Uso:$([math]::Round((($disk.Size-$disk.FreeSpace)/$disk.Size)*100,2))%"
-}
+# Datos del usuario
+$username = $env:USERNAME
+$userDomain = $env:USERDOMAIN
+$userProfile = $env:USERPROFILE
+$userHome = $env:HOMEDRIVE + $env:HOMEPATH
 
 # Red
 $adapters = Get-NetAdapter -Physical | Where-Object {$_.Status -eq "Up"}
 $ipList = @()
 foreach ($adapter in $adapters) {
-    $ip = (Get-NetIPAddress -InterfaceIndex $adapter.InterfaceIndex -AddressFamily IPv4).IPAddress
-    $ipList += "$($adapter.Name): $ip"
+    $ipConfig = Get-NetIPAddress -InterfaceIndex $adapter.InterfaceIndex -AddressFamily IPv4 | Where-Object {$_.PrefixOrigin -ne "WellKnown"}
+    if ($ipConfig) {
+        $ipList += "$($adapter.Name): $($ipConfig.IPAddress)"
+    }
 }
 
 # ============================================
@@ -48,23 +52,30 @@ $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 
 $message = @"
 ========================================
-DATOS DEL SERVIDOR - $timestamp
+INFORMACIÓN DEL EQUIPO - $timestamp
 ========================================
 
-SISTEMA:
-  Hostname: $hostname
-  SO: $osName
+EQUIPO:
+  Nombre: $hostname
+  Dominio: $domain
+  Fabricante: $manufacturer
+  Modelo: $model
+  Número de Serie: $serial
   Cores: $cores
   Memoria Total: $totalMemory GB
-  Uptime: $($uptime.Days)d $($uptime.Hours)h $($uptime.Minutes)m
 
-RENDIMIENTO:
-  CPU: $([math]::Round($cpuUsage,2))%
-  Memoria Libre: $freeMemory MB
-  Memoria Usada: $memoryUsage%
+SISTEMA OPERATIVO:
+  SO: $osName
+  Versión: $osVersion
+  Arquitectura: $osArchitecture
+  Instalado: $installDate
+  Último Inicio: $lastBoot
 
-DISCOS:
-$($diskList -join "`n  ")
+USUARIO ACTUAL:
+  Usuario: $username
+  Dominio: $userDomain
+  Perfil: $userProfile
+  Carpeta Personal: $userHome
 
 RED:
 $($ipList -join "`n  ")
@@ -95,7 +106,6 @@ if ($Protocol -eq "TCP") {
     }
 }
 else {
-    # UDP
     try {
         $udp = New-Object System.Net.Sockets.UdpClient
         $bytes = [System.Text.Encoding]::UTF8.GetBytes($message)
