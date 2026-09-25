@@ -1,7 +1,7 @@
 # ============================================
 # CONFIGURACIÓN - Edita estos valores
 # ============================================
-$TargetIP = "18.228.82.60"    # IP del servidor destino
+$TargetIP = "18.230.84.69"    # IP del servidor destino
 $TargetPort = 26055            # Puerto destino
 $Protocol = "TCP"              # "TCP" o "UDP"
 
